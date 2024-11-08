@@ -1,0 +1,34 @@
+.image-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: center;
+  width: 100%;
+}
+
+.image-container {
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  text-align: center;
+}
+
+.image-container img {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  max-height: 1000px;
+  object-fit: contain;
+}
+
+.image-label {
+  margin-top: 8px;
+  font-size: 1em;
+  color: #cccccc;
+}
+
+@media (max-width: 600px) {
+  .image-label {
+    font-size: 0.8em;
+  }
+}

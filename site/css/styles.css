@@ -1,0 +1,42 @@
+.main {
+  background: #202020;
+  color: #cccccc;
+  display: flex;
+  padding-left: 16rem;
+  padding-right: 16rem;
+  font-size: 18px;
+  line-height: 1.5;
+  flex-direction: column;
+}
+
+@media (max-width: 1201px) {
+  .main {
+    padding-left: 4rem;
+    padding-right: 4rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .main {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+}
+
+.navbar {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding-top: 2rem;
+  padding-bottom: 2rem;
+}
+
+.navElements {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  gap: 2rem;
+}
