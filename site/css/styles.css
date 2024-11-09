@@ -1,3 +1,22 @@
+body {
+  font-family: 'Anek Devanagari', sans-serif;
+  font-optical-sizing: auto;
+  font-weight: 500;
+  font-style: normal;
+  font-variation-settings: 'wdth' 100;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  color: #cccccc;
+  text-decoration: none;
+}
+
+a:hover {
+  font-weight: 600;
+}
+
 .main {
   background: #202020;
   color: #cccccc;
