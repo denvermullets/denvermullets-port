@@ -1,0 +1,15 @@
+{
+    "name": "denvermullets-port",
+    "main": "index.ts",
+    "devDependencies": {
+        "@types/mime-types": "^2.1.4",
+        "@types/node": "^18",
+        "typescript": "^5.0.0"
+    },
+    "dependencies": {
+        "@pulumi/aws": "^6.0.0",
+        "@pulumi/awsx": "^2.0.2",
+        "@pulumi/pulumi": "^3.113.0",
+        "mime-types": "^2.1.35"
+    }
+}

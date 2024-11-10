@@ -1,0 +1,10 @@
+name: denvermullets-port
+description: portfolio
+runtime:
+  name: nodejs
+  options:
+    packagemanager: yarn
+config:
+  pulumi:tags:
+    value:
+      pulumi:template: aws-typescript
