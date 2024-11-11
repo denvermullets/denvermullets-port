@@ -1,192 +1,154 @@
 import * as pulumi from '@pulumi/pulumi';
 import * as aws from '@pulumi/aws';
-import * as fs from 'fs';
 import * as path from 'path';
 import * as mime from 'mime-types';
+import * as fs from 'fs';
 
-const domainName = 'denvermullets.com';
+const config = new pulumi.Config();
+const domain = config.require('domain');
+const sitePath = config.require('sitePath');
 
-// 1. Create an S3 bucket for static website
-const siteBucket = new aws.s3.Bucket('siteBucket', {
-  bucket: domainName,
+// Create an S3 bucket for hosting the static website
+const siteBucket = new aws.s3.Bucket('denvermullets-port', {
+  bucket: domain,
   website: {
     indexDocument: 'index.html',
     errorDocument: '404.html',
   },
-  // Optional: removes bucket even if it contains objects
-  forceDestroy: true,
 });
 
-// Define the public access block settings
-// this should be set for the user
 const publicAccessBlock = new aws.s3.BucketPublicAccessBlock(
-  'siteBucketPublicAccessBlock',
+  'public-access-block',
   {
-    bucket: siteBucket.bucket,
-    blockPublicAcls: false, // Allow public ACLs
-    ignorePublicAcls: false, // Ignore public ACL restrictions
-    blockPublicPolicy: false, // Allow public policies
-    restrictPublicBuckets: false, // Don't restrict public bucket access
-  }
+    bucket: siteBucket.id,
+    blockPublicAcls: false,
+    blockPublicPolicy: false,
+    ignorePublicAcls: false,
+    restrictPublicBuckets: false,
+  },
+  { dependsOn: siteBucket }
 );
 
-// Step 2: Define the IAM Policy to allow necessary actions on this bucket
-// i feel like this might be uneeded since the user is attached to a group
-// const bucketPolicyDocument = pulumi.output({
-//   Version: '2012-10-17',
-//   Statement: [
-//     {
-//       Effect: 'Allow',
-//       Action: [
-//         's3:PutBucketPolicy',
-//         's3:GetBucketPolicy',
-//         's3:PutBucketAcl',
-//         's3:ListBucket',
-//         's3:GetObject',
-//         's3:PutObject',
-//       ],
-//       Resource: [
-//         pulumi.interpolate`arn:aws:s3:::${siteBucket.bucket}`,
-//         pulumi.interpolate`arn:aws:s3:::${siteBucket.bucket}/*`,
-//       ],
-//     },
-//   ],
-// });
+// Create bucket policy to allow public read access
+const bucketPolicy = new aws.s3.BucketPolicy(
+  'bucket-policy',
+  {
+    bucket: siteBucket.id,
+    policy: siteBucket.id.apply((bucketName) =>
+      JSON.stringify({
+        Version: '2012-10-17',
+        Statement: [
+          {
+            Sid: 'PublicReadGetObject',
+            Effect: 'Allow',
+            Principal: '*',
+            Action: ['s3:GetObject'],
+            Resource: [`arn:aws:s3:::${bucketName}/*`],
+          },
+        ],
+      })
+    ),
+  },
+  { dependsOn: publicAccessBlock }
+);
 
-// // 2. Set up a policy to make the S3 bucket publicly accessible
-const bucketPolicy = new aws.s3.BucketPolicy('bucketPolicy', {
-  bucket: siteBucket.bucket,
-  policy: siteBucket.bucket.apply((bucketName) =>
-    JSON.stringify({
-      Version: '2012-10-17',
-      Statement: [
-        {
-          Action: ['s3:GetObject'],
-          Effect: 'Allow',
-          Principal: '*',
-          Resource: [`arn:aws:s3:::${bucketName}/*`],
-        },
-      ],
-    })
-  ),
+// Create AWS provider specifically for us-east-1
+const usEast1Provider = new aws.Provider('usEast1', {
+  region: 'us-east-1',
 });
 
-// 3. Upload files to S3
-const siteDir = './site';
+// Request an SSL certificate in us-east-1
+const certificate = new aws.acm.Certificate(
+  'site-certificate',
+  {
+    domainName: domain,
+    validationMethod: 'DNS',
+  },
+  { provider: usEast1Provider }
+);
 
-// Helper function to recursively upload all files in a directory
-function uploadDirectory(directory: string, bucket: aws.s3.Bucket) {
-  const files = fs.readdirSync(directory);
+// Function to recursively upload files to S3
+function uploadDirectory(directoryPath: string, bucketName: string) {
+  const files = fs.readdirSync(directoryPath);
+
   files.forEach((file) => {
-    const filePath = path.join(directory, file);
-    const isDirectory = fs.lstatSync(filePath).isDirectory();
+    const filePath = path.join(directoryPath, file);
+    const stat = fs.statSync(filePath);
 
-    if (isDirectory) {
-      // Recursively upload subdirectories
-      uploadDirectory(filePath, bucket);
+    if (stat.isDirectory()) {
+      uploadDirectory(filePath, bucketName);
     } else {
-      // Upload file to S3
-      const relativePath = path.relative(siteDir, filePath);
-      new aws.s3.BucketObject(relativePath, {
-        bucket: bucket,
-        source: new pulumi.asset.FileAsset(filePath),
-        contentType: mime.lookup(filePath) || undefined,
-      });
+      const relativePath = path.relative(sitePath, filePath);
+      new aws.s3.BucketObject(
+        `file-${relativePath}`,
+        {
+          bucket: bucketName,
+          source: new pulumi.asset.FileAsset(filePath),
+          contentType: mime.lookup(filePath) || undefined,
+          key: relativePath,
+        },
+        { dependsOn: siteBucket }
+      );
     }
   });
 }
 
-uploadDirectory(siteDir, siteBucket);
+// Upload the website files
+uploadDirectory(sitePath, domain);
 
-// there's no real way for pulumi to setup a cert for namecheap so skipping
-// you have to manually go in and create the route53 dns cert stuff
-// then copy the host/value to namecheap cname record
+// *** once domain is connected / validated we can run this to connect the cdn so we can get https
+// *** comment out below
 
-// 4. Create a certificate for the domain (must be in us-east-1 for CloudFront)
-// const cert = new aws.acm.Certificate(
-//   'cert',
-//   {
-//     domainName: domainName,
-//     validationMethod: 'DNS',
-//     tags: {
-//       Environment: 'Production',
-//     },
-//   },
-//   { provider: new aws.Provider('us-east-1-provider', { region: 'us-east-1' }) }
-// );
+// Create CloudFront distribution
+const distribution = new aws.cloudfront.Distribution('site-distribution', {
+  enabled: true,
+  aliases: [domain],
+  origins: [
+    {
+      originId: siteBucket.arn,
+      domainName: siteBucket.websiteEndpoint,
+      customOriginConfig: {
+        httpPort: 80,
+        httpsPort: 443,
+        originProtocolPolicy: 'http-only',
+        originSslProtocols: ['TLSv1.2'],
+      },
+    },
+  ],
+  defaultRootObject: 'index.html',
+  defaultCacheBehavior: {
+    targetOriginId: siteBucket.arn,
+    viewerProtocolPolicy: 'redirect-to-https',
+    allowedMethods: ['GET', 'HEAD', 'OPTIONS'],
+    cachedMethods: ['GET', 'HEAD', 'OPTIONS'],
+    forwardedValues: {
+      queryString: false,
+      cookies: {
+        forward: 'none',
+      },
+    },
+    minTtl: 0,
+    defaultTtl: 3600,
+    maxTtl: 86400,
+  },
+  restrictions: {
+    geoRestriction: {
+      restrictionType: 'none',
+    },
+  },
+  viewerCertificate: {
+    acmCertificateArn: certificate.arn,
+    sslSupportMethod: 'sni-only',
+    minimumProtocolVersion: 'TLSv1.2_2021',
+  },
+});
 
-// 5. Create a DNS validation record (using Route 53)
-// const hostedZone = new aws.route53.Zone('exampleZone', {
-//   name: domainName,
-// });
+export const distributionDomain = distribution.domainName;
+export const distributionId = distribution.id;
+// *** comment out above
 
-// const certValidation = new aws.route53.Record('certValidation', {
-//   zoneId: hostedZone.zoneId,
-//   name: cert.domainValidationOptions[0].resourceRecordName,
-//   type: cert.domainValidationOptions[0].resourceRecordType,
-//   records: [cert.domainValidationOptions[0].resourceRecordValue],
-//   ttl: 60,
-// });
-
-// 6. Wait for certificate validation
-// const validatedCert = new aws.acm.CertificateValidation('validatedCert', {
-//   certificateArn: cert.arn,
-//   validationRecordFqdns: [certValidation.fqdn],
-// });
-
-// 7. Create a CloudFront distribution for the S3 website
-// const cdn = new aws.cloudfront.Distribution('cdn', {
-//   enabled: true,
-//   origins: [
-//     {
-//       domainName: siteBucket.websiteEndpoint,
-//       originId: siteBucket.arn,
-//       customOriginConfig: {
-//         originProtocolPolicy: 'http-only',
-//         httpPort: 80,
-//         httpsPort: 443,
-//         originSslProtocols: ['TLSv1.2'],
-//       },
-//     },
-//   ],
-//   defaultCacheBehavior: {
-//     targetOriginId: siteBucket.arn,
-//     viewerProtocolPolicy: 'redirect-to-https',
-//     allowedMethods: ['GET', 'HEAD'],
-//     cachedMethods: ['GET', 'HEAD'],
-//     forwardedValues: {
-//       queryString: false,
-//       cookies: { forward: 'none' },
-//     },
-//   },
-//   priceClass: 'PriceClass_100',
-//   viewerCertificate: {
-//     acmCertificateArn: validatedCert.certificateArn,
-//     sslSupportMethod: 'sni-only',
-//     minimumProtocolVersion: 'TLSv1.2_2021',
-//   },
-//   aliases: [domainName],
-//   restrictions: {
-//     geoRestriction: {
-//       restrictionType: 'none',
-//     },
-//   },
-// });
-
-// 8. Create a Route 53 DNS record to point the domain to the CloudFront distribution
-// new aws.route53.Record('cdnRecord', {
-//   zoneId: hostedZone.id,
-//   name: domainName,
-//   type: 'A',
-//   aliases: [
-//     {
-//       name: cdn.domainName,
-//       zoneId: cdn.hostedZoneId,
-//       evaluateTargetHealth: false,
-//     },
-//   ],
-// });
-
-// Export the bucket name and CloudFront URL
-export const bucketName = siteBucket.bucket;
-// export const cdnUrl = cdn.domainName;
+// Export the necessary values
+export const bucketName = siteBucket.id;
+export const bucketEndpoint = siteBucket.websiteEndpoint;
+export const certificateArn = certificate.arn;
+export const certificateValidationDomains = certificate.domainValidationOptions;
