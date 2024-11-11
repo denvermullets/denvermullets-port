@@ -33,3 +33,4 @@ build
 dump.rdb
 
 /cypress/videos
+.DS_Store
